@@ -276,7 +276,7 @@ def chat_with_brain(user_query):
 
 init_db()
 
-# CSS 样式注入 (已修复括号问题)
+# CSS 样式注入
 st.markdown("""
 <style>
     html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
@@ -324,7 +324,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管�
 with tab1:
     with st.container(border=True):
         st.subheader("💡 存入新想法")
-        # ⚠️ 已修复括号和参数
+        # ✅ 已修复：参数放在括号内
         with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns([1, 3])
             cat = c1.selectbox("分类", ["核心知识", "灵感", "复盘", "代码", "AI 顾问", "情报调研"])
