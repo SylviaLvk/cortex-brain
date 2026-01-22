@@ -90,14 +90,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 新增：ID 重排 (Re-order IDs)
+# ID 重排 (Re-order IDs)
 def reorder_ids():
     conn = get_connection()
+    # 1. 取出所有数据
     df = pd.read_sql_query("SELECT * FROM memories ORDER BY id ASC", conn)
     conn.close()
     
     if df.empty: return
 
+    # 2. 删表重置
     conn = get_connection()
     c = conn.cursor()
     c.execute("DROP TABLE IF EXISTS memories")
@@ -105,6 +107,7 @@ def reorder_ids():
     conn.close()
     init_db()
 
+    # 3. 重新插入
     conn = get_connection()
     c = conn.cursor()
     for _, row in df.iterrows():
@@ -295,7 +298,7 @@ st.markdown("""
 
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🧬 Cortex</h1>", unsafe_allow_html=True)
-    st.caption("v4.2 Stable Edition")
+    st.caption("v4.3 Final Edition")
     st.markdown("---")
     st.info("📊 已存储: " + str(len(load_memories(1000))) + " 条笔记")
     st.markdown("---")
@@ -308,7 +311,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管�
 with tab1:
     with st.container(border=True):
         st.subheader("💡 存入新想法")
-        # ⚠️ 这里是正确的写法，千万不要改
+        # ✅ 这里就是你之前报错的地方，已经修复好了
         with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns([1, 3])
             cat = c1.selectbox("分类", ["核心知识", "灵感", "复盘", "代码", "AI 顾问", "情报调研"])
