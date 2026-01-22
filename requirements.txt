@@ -1,5 +1,0 @@
-streamlit
-google-generativeai
-tavily-python
-pandas
-requests

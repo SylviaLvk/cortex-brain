@@ -8,40 +8,73 @@ from tavily import TavilyClient
 import requests
 
 # ==========================================
-# 🔐 安全门禁 (Password Check)
+# 🔐 1. 安全门禁 (Password Gatekeeper)
 # ==========================================
 def check_password():
-    """如果不输入正确密码，程序直接停止运行"""
-    # 1. 如果是本地运行 (没有 secrets)，为了方便调试，默认不开启密码
-    if "APP_PASSWORD" not in st.secrets:
+    """安全检查：云端需要密码，本地自动免密"""
+    
+    # [关键修复] 使用 try-except 包裹
+    # 如果本地没有 secrets 文件，这里会报错，我们捕获它并直接放行
+    try:
+        # 检查云端是否设置了密码
+        if "APP_PASSWORD" not in st.secrets:
+            return True # 云端没设密码，允许通过
+    except Exception:
+        # 捕获所有错误（说明是本地环境，没有 secrets 文件）
+        # 直接允许通过，方便你自己开发
         return True
 
-    # 2. 如果已经登录过，直接放行
+    # 如果已经登录过，直接放行
     if "password_correct" in st.session_state and st.session_state["password_correct"]:
         return True
 
-    # 3. 显示输入框
+    # 显示密码输入框
     st.markdown("## 🔒 Cortex 安全门禁")
-    password_input = st.text_input("请输入访问密码", type="password")
+    st.caption("云端访问保护中，请输入密码")
+    password_input = st.text_input("访问密码", type="password")
     
-    if st.button("解锁大脑"):
+    if st.button("解锁"):
         if password_input == st.secrets["APP_PASSWORD"]:
             st.session_state["password_correct"] = True
-            st.rerun() # 密码正确，刷新页面进入
+            st.rerun()
         else:
-            st.error("🚫 密码错误，禁止访问")
+            st.error("🚫 密码错误")
     
-    # 4. 只有返回 True 才会继续执行后面的代码，否则在这里就停住了
     return False
 
-# 执行检查：如果没通过，直接停止整个 App 的运行
+# 执行门禁检查
 if not check_password():
     st.stop()
 
+
 # ==========================================
-# 0. 核心配置 (Smart Config)
+# ⚙️ 2. 核心配置 (Smart Config - 防弹版)
 # ==========================================
-# ... (后面接原来的 LOCAL_GEMINI_KEY 等代码)
+
+# ⚠️ [必须修改] 本地运行时的备用钥匙
+# (当代码在你的 Mac 上运行时，会强制使用这里的值)
+LOCAL_GEMINI_KEY = "AIzaSyBKW_0nEnaZiJu33JvWhPiPOxkC5yf9zLA"  
+LOCAL_TAVILY_KEY = "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"
+LOCAL_PROXY_PORT = "1082"
+
+# 智能环境切换逻辑
+try:
+    # 尝试读取云端配置
+    my_api_key = st.secrets["GEMINI_KEY"]
+    tavily_key = st.secrets["TAVILY_KEY"]
+    print("☁️ 检测到云端环境，已自动移除代理。")
+
+except Exception:
+    # 捕获错误 -> 切换为本地模式
+    print(f"🖥️ 检测到本地环境，启用代理: {LOCAL_PROXY_PORT}")
+    my_api_key = LOCAL_GEMINI_KEY
+    tavily_key = LOCAL_TAVILY_KEY
+    
+    # 挂载代理
+    os.environ["HTTP_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
+    os.environ["HTTPS_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
+
+# 配置 AI
 try:
     genai.configure(api_key=my_api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -50,8 +83,9 @@ except Exception as e:
 
 DB_FILE = "second_brain.db"
 
+
 # ==========================================
-# 1. 数据库技能 (SQLite Skills)
+# 💾 3. 数据库技能
 # ==========================================
 
 def get_connection():
@@ -103,8 +137,9 @@ def delete_memory(mid):
     conn.commit()
     conn.close()
 
+
 # ==========================================
-# 2. 智能体技能 (Agent Skills)
+# 🧠 4. 智能体技能
 # ==========================================
 
 def analyze_logic(text):
@@ -114,15 +149,12 @@ def analyze_logic(text):
     输入：{text}
     ----
     Markdown 输出格式：
-    ### (给出一个简短的、不超过10个字的标题)
-    
-    (一句话总结核心观点，不超过50个字)
-    
+    ### (简短标题)
+    (一句话总结)
     ### 💡 核心概念
     (定义)
     ### 🔑 关键逻辑
     (要点)
-    
     TAGS: 标签1, 标签2
     """
     try:
@@ -138,47 +170,41 @@ def analyze_logic(text):
 def deep_read_url(url):
     try:
         jina_url = f"https://r.jina.ai/{url}"
-        # request 会自动跟随系统的环境变量(os.environ)，所以不需要额外改动
         response = requests.get(jina_url, timeout=20)
         if response.status_code == 200:
             return response.text
         else:
-            return f"读取失败，状态码: {response.status_code}"
+            return f"读取失败: {response.status_code}"
     except Exception as e:
-        return f"深阅读连接错误: {e}"
+        return f"连接错误: {e}"
 
 def web_agent_report(query, mode="search"):
     raw_data = ""
     source_type = ""
-
     if mode == "search":
         try:
-            # 使用动态获取的 key
             tavily = TavilyClient(api_key=tavily_key) 
             response = tavily.search(query=query, search_depth="advanced", max_results=5)
             raw_data = "\n".join([f"- {r['title']}: {r['content']} (来源: {r['url']})" for r in response.get('results', [])])
             source_type = "搜索引擎摘要"
-            if not raw_data: return None, "未找到网络信息"
+            if not raw_data: return None, "未找到信息"
         except Exception as e:
-            return None, f"搜索工具报错: {e}"
-
+            return None, f"搜索报错: {e}"
     elif mode == "url":
-        st.info(f"正在深度爬取链接: {query} ...")
+        st.info(f"正在深度爬取: {query}")
         raw_content = deep_read_url(query)
         raw_data = raw_content[:15000] 
         source_type = "网页深度全文"
 
     prompt = f"""
-    你是一位资深研究员。用户提供了一份【{source_type}】。
-    原始内容：{raw_data}
+    你是一位研究员。用户提供了【{source_type}】。
+    内容：{raw_data}
     ----
-    请写一份深度简报：
-    ### (这里写简报的标题)
-    (这里写一句话的核心结论摘要)
-    
-    #### 1. 关键细节与数据
-    #### 2. 洞察与启示
-    
+    请写深度简报：
+    ### (标题)
+    (结论摘要)
+    #### 1. 关键细节
+    #### 2. 洞察
     TAGS: 深阅读, 情报
     """
     try:
@@ -192,7 +218,7 @@ def web_agent_report(query, mode="search"):
             final_tags = parts[1].strip()
         return final_report, final_tags
     except Exception as e:
-        return None, f"AI 生成报告失败: {e}"
+        return None, f"AI 生成失败: {e}"
 
 def chat_with_brain(user_query):
     df = load_memories(limit=50)
@@ -204,27 +230,25 @@ def chat_with_brain(user_query):
         memory_context = "(数据库暂无记忆)"
 
     prompt = f"""
-    【角色设定】你是用户的“第二大脑”兼“私人顾问”。
-    【记忆库】{memory_context}
-    【用户提问】"{user_query}"
-    【回答原则】
-    1. 记忆优先：必须引用 [ID:xx]。
-    2. 顾问模式：基于记忆给建议；如果记忆里没有，调用通用知识并标注“⚠️ 基于通用知识”。
+    【角色】你的第二大脑顾问。
+    【记忆】{memory_context}
+    【提问】"{user_query}"
+    【原则】1. 必须引用 [ID:xx]。 2. 无记忆可调用通用知识但需标注。
     """
     try:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"大脑短路了: {e}"
+        return f"大脑短路: {e}"
+
 
 # ==========================================
-# 3. 界面构建 (Product UI - Designer Edition)
+# 🎨 5. 界面构建
 # ==========================================
 
 st.set_page_config(page_title="Cortex", layout="wide", page_icon="🧬")
 init_db()
 
-# CSS 样式注入
 st.markdown("""
 <style>
     html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
@@ -243,17 +267,8 @@ st.markdown("""
         background-color: white;
         padding: 15px;
     }
-    @media (prefers-color-scheme: dark) {
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            background-color: #262730;
-            border: 1px solid #363945;
-        }
-    }
     div.stButton > button { border-radius: 8px; font-weight: 600; }
     section[data-testid="stSidebar"] { background-color: #f8f9fa; }
-    @media (prefers-color-scheme: dark) {
-        section[data-testid="stSidebar"] { background-color: #1a1c24; }
-    }
     div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
         height: 240px; 
         overflow: hidden;
@@ -263,44 +278,33 @@ st.markdown("""
 
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🧬 Cortex</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: grey;'>Sylvia's Second Brain</p>", unsafe_allow_html=True)
+    st.caption("v3.8 Secure Cloud Edition")
     st.markdown("---")
-    st.info("📊 **记忆统计**\n\n已存储: " + str(len(load_memories(1000))) + " 条笔记")
+    st.info("📊 已存储: " + str(len(load_memories(1000))) + " 条笔记")
     st.markdown("---")
-    st.caption("1. 📝 深度录入 (Input)")
-    st.caption("2. 🎨 记忆画廊 (Gallery)")
-    st.caption("3. 🔧 数据管理 (Admin)")
-    st.caption("4. 🌍 全网侦探 (Agent)")
-    st.caption("5. 💬 智能顾问 (Chat)")
+    st.caption("1. 📝 深度录入\n2. 🎨 记忆画廊\n3. 🔧 数据管理\n4. 🌍 全网侦探\n5. 💬 智能顾问")
 
 st.markdown('<div class="title-gradient">Cortex Intelligence</div>', unsafe_allow_html=True)
-st.caption("v3.6 Cloud Edition | 你的外挂神经中枢")
-st.markdown("")
 
-# Tab 页面布局
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管理", "🌍 侦探", "💬 顾问"])
 
-# Tab 1
 with tab1:
     with st.container(border=True):
         st.subheader("💡 存入新想法")
         with st.form("input_form"):
             c1, c2 = st.columns([1, 3])
             cat = c1.selectbox("分类", ["核心知识", "灵感", "复盘", "代码", "AI 顾问", "情报调研"])
-            use_ai = c2.checkbox("🪄 启用 AI 逻辑重组", value=True)
-            txt = st.text_area("在此输入内容...", height=150)
-            
-            if st.form_submit_button("🚀 存入大脑"):
+            use_ai = c2.checkbox("🪄 启用 AI 重组", value=True)
+            txt = st.text_area("内容...", height=150)
+            if st.form_submit_button("🚀 存入"):
                 sm, tg = txt, "手动"
                 if use_ai and txt:
-                    with st.spinner("AI 正在整理逻辑..."):
+                    with st.spinner("AI 处理中..."):
                         sm, tg = analyze_logic(txt)
                 save_memory(cat, txt, sm, tg)
-                st.balloons()
-                st.success("记忆已固化！")
+                st.success("已存入！")
                 st.rerun()
 
-# Tab 2
 with tab2:
     df = load_memories(limit=100) 
     if not df.empty:
@@ -313,92 +317,74 @@ with tab2:
                     if row['category'] == "AI 顾问": cat_icon = "💡"
                     elif "情报" in row['category']: cat_icon = "🌍"
                     elif row['category'] == "代码": cat_icon = "💻"
-                    elif row['category'] == "复盘": cat_icon = "🔄"
                     st.markdown(f"##### {cat_icon} {row['category']}")
                     short_summary = row['summary'].split('\n')[0][:35]
                     st.markdown(f"<span style='color:grey; font-size:0.9em'>{short_summary}...</span>", unsafe_allow_html=True)
-                    st.caption(f"🏷 {row['tags'][:12]}...")
-                    with st.popover("🔍 展开", use_container_width=True):
+                    with st.popover("🔍 展开"):
                         st.subheader(f"{cat_icon} {row['category']}")
-                        st.markdown("---")
-                        st.success("📝 **智能摘要**")
                         st.markdown(row['summary'])
-                        st.info("📄 **原始数据**")
+                        st.markdown("---")
+                        st.info("原始数据")
                         st.markdown(row['content'])
 
-# Tab 3
 with tab3:
     with st.container(border=True):
         st.subheader("🛠️ 数据维护")
         df_m = load_memories(limit=100)
         if not df_m.empty:
-            st.dataframe(df_m[['id', 'category', 'tags', 'created_at']], use_container_width=True)
-            c1, c2 = st.columns([3, 1])
-            d_id = c1.number_input("输入要删除的 ID", min_value=0)
-            if c2.button("🗑️ 销毁记忆", type="primary"):
+            st.dataframe(df_m[['id', 'category', 'tags']], use_container_width=True)
+            d_id = st.number_input("删除 ID", min_value=0)
+            if st.button("🗑️ 销毁"):
                 delete_memory(d_id)
                 st.rerun()
 
-# Tab 4
 with tab4:
     with st.container(border=True):
-        st.subheader("🌍 全网情报侦探")
-        search_mode = st.radio("选择模式", ["🔍 关键词搜索", "📖 URL 深阅读"], horizontal=True)
-        col_q, col_btn = st.columns([4, 1])
+        st.subheader("🌍 全网侦探")
+        search_mode = st.radio("模式", ["🔍 搜关键词", "📖 读 URL"], horizontal=True)
+        c_q, c_b = st.columns([4, 1])
         if "关键词" in search_mode:
-            query_input = col_q.text_input("输入话题", placeholder="例如：DeepSeek 核心技术")
-            mode_code = "search"
+            q_in = c_q.text_input("话题", placeholder="例如：DeepSeek")
+            mode = "search"
         else:
-            query_input = col_q.text_input("粘贴 URL", placeholder="https://...")
-            mode_code = "url"
-        run_search = col_btn.button("🚀 执行侦查")
-        if "search_result" not in st.session_state:
-            st.session_state.search_result = None
-            st.session_state.search_tags = None
-        if run_search and query_input:
-            with st.spinner("🕵️‍♂️ 正在执行深层任务..."):
-                report, tags = web_agent_report(query_input, mode=mode_code)
-                if report:
-                    st.session_state.search_result = report
-                    st.session_state.search_tags = tags
+            q_in = c_q.text_input("链接", placeholder="https://...")
+            mode = "url"
+        if c_b.button("🚀 执行"):
+            with st.spinner("执行中..."):
+                rep, tgs = web_agent_report(q_in, mode=mode)
+                if rep:
+                    st.session_state.res = rep
+                    st.session_state.tags = tgs
                 else:
-                    st.error(tags)
-        if st.session_state.search_result:
+                    st.error(tgs)
+        if "res" in st.session_state and st.session_state.res:
             st.markdown("---")
-            st.markdown(st.session_state.search_result)
-            if st.button("💾 归档情报"):
-                save_memory("情报调研", f"源: {query_input}", st.session_state.search_result, st.session_state.search_tags)
-                st.success("✅ 已归档！")
-                st.session_state.search_result = None
+            st.markdown(st.session_state.res)
+            if st.button("💾 归档"):
+                save_memory("情报调研", f"源: {q_in}", st.session_state.res, st.session_state.tags)
+                st.success("已归档！")
+                st.session_state.res = None
                 st.rerun()
 
-# Tab 5
 with tab5:
     st.subheader("💬 Cortex 顾问")
-    if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": "你好 Sylvia，我是 Cortex。基于你的记忆库，有什么我可以帮你的？"}]
-    if "last_ai_response" not in st.session_state:
-        st.session_state.last_ai_response = None
-    if "last_user_query" not in st.session_state:
-        st.session_state.last_user_query = ""
-    for msg in st.session_state.messages:
+    if "msgs" not in st.session_state:
+        st.session_state.msgs = [{"role": "assistant", "content": "你好，我是 Cortex。"}]
+    for msg in st.session_state.msgs:
         avatar = "🧬" if msg["role"] == "assistant" else "👤"
         st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
-    if user_input := st.chat_input("向大脑提问..."):
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        st.chat_message("user", avatar="👤").write(user_input)
-        st.session_state.last_user_query = user_input
+    if u_in := st.chat_input("提问..."):
+        st.session_state.msgs.append({"role": "user", "content": u_in})
+        st.chat_message("user", avatar="👤").write(u_in)
+        st.session_state.last_u = u_in
         with st.chat_message("assistant", avatar="🧬"):
-            with st.spinner("🧠 Cortex 正在思考..."):
-                response = chat_with_brain(user_input)
-                st.write(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                st.session_state.last_ai_response = response
+            with st.spinner("思考中..."):
+                resp = chat_with_brain(u_in)
+                st.write(resp)
+                st.session_state.msgs.append({"role": "assistant", "content": resp})
+                st.session_state.last_a = resp
                 st.rerun()
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
-        last_msg = st.session_state.messages[-1]["content"]
-        if len(st.session_state.messages) > 1:
-            col_save, _ = st.columns([1, 5])
-            if col_save.button("📥 归档这条建议"):
-                save_memory(category="AI 顾问", content=f"问题: {st.session_state.last_user_query}", summary=last_msg, tags="对话, 建议, 自动归档")
-                st.success("✅ 已归档到 [AI 顾问] 分类！")
+    if st.session_state.msgs and st.session_state.msgs[-1]["role"] == "assistant" and len(st.session_state.msgs) > 1:
+        if st.button("📥 归档建议"):
+            save_memory("AI 顾问", f"问: {st.session_state.get('last_u','')}", st.session_state.msgs[-1]["content"], "对话")
+            st.success("已归档")
