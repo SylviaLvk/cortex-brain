@@ -8,36 +8,40 @@ from tavily import TavilyClient
 import requests
 
 # ==========================================
-# 0. 核心配置 (Smart Config - 防弹版)
+# 🔐 安全门禁 (Password Check)
 # ==========================================
+def check_password():
+    """如果不输入正确密码，程序直接停止运行"""
+    # 1. 如果是本地运行 (没有 secrets)，为了方便调试，默认不开启密码
+    if "APP_PASSWORD" not in st.secrets:
+        return True
 
-# ⚠️ [关键步骤] 请在这里填入你的真实 Key (用于本地 Mac 运行)
-# 如果上传到云端，代码会自动忽略这里，去读云端的 Secrets
-LOCAL_GEMINI_KEY = "AIzaSyBKW_0nEnaZiJu33JvWhPiPOxkC5yf9zLA"  
-LOCAL_TAVILY_KEY = "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"
-LOCAL_PROXY_PORT = "1082"
+    # 2. 如果已经登录过，直接放行
+    if "password_correct" in st.session_state and st.session_state["password_correct"]:
+        return True
 
-# 智能环境切换逻辑
-try:
-    # 1. 尝试从 Streamlit 云端保险箱读取
-    # (如果本地没有 secrets.toml 文件，这里会直接报错，自动跳到 except)
-    my_api_key = st.secrets["GEMINI_KEY"]
-    tavily_key = st.secrets["TAVILY_KEY"]
+    # 3. 显示输入框
+    st.markdown("## 🔒 Cortex 安全门禁")
+    password_input = st.text_input("请输入访问密码", type="password")
     
-    # 如果上面没报错，说明在云端
-    print("☁️ 检测到云端环境 (Streamlit Cloud)，已移除代理设置。")
-
-except Exception:
-    # 2. 如果报错了，说明在本地 Mac
-    print(f"🖥️ 检测到本地环境 (Local)，启用代理: {LOCAL_PROXY_PORT}")
-    my_api_key = LOCAL_GEMINI_KEY
-    tavily_key = LOCAL_TAVILY_KEY
+    if st.button("解锁大脑"):
+        if password_input == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            st.rerun() # 密码正确，刷新页面进入
+        else:
+            st.error("🚫 密码错误，禁止访问")
     
-    # 挂载 Shadowrocket 代理
-    os.environ["HTTP_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
-    os.environ["HTTPS_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
+    # 4. 只有返回 True 才会继续执行后面的代码，否则在这里就停住了
+    return False
 
-# 配置 AI
+# 执行检查：如果没通过，直接停止整个 App 的运行
+if not check_password():
+    st.stop()
+
+# ==========================================
+# 0. 核心配置 (Smart Config)
+# ==========================================
+# ... (后面接原来的 LOCAL_GEMINI_KEY 等代码)
 try:
     genai.configure(api_key=my_api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
