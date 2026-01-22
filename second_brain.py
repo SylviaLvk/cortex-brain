@@ -8,27 +8,27 @@ from tavily import TavilyClient
 import requests
 
 # ==========================================
+# 0. 页面初始化 (必须在所有代码之前)
+# ==========================================
+st.set_page_config(page_title="Cortex", layout="wide", page_icon="🧬")
+
+# ==========================================
 # 🔐 1. 安全门禁 (Password Gatekeeper)
 # ==========================================
 def check_password():
     """安全检查：云端需要密码，本地自动免密"""
-    
-    # [关键修复] 使用 try-except 包裹
-    # 如果本地没有 secrets 文件，这里会报错，我们捕获它并直接放行
     try:
         # 检查云端是否设置了密码
         if "APP_PASSWORD" not in st.secrets:
-            return True # 云端没设密码，允许通过
+            return True 
     except Exception:
-        # 捕获所有错误（说明是本地环境，没有 secrets 文件）
-        # 直接允许通过，方便你自己开发
+        # 本地没有 secrets 文件，直接放行
         return True
 
-    # 如果已经登录过，直接放行
     if "password_correct" in st.session_state and st.session_state["password_correct"]:
         return True
 
-    # 显示密码输入框
+    # 密码输入界面
     st.markdown("## 🔒 Cortex 安全门禁")
     st.caption("云端访问保护中，请输入密码")
     password_input = st.text_input("访问密码", type="password")
@@ -42,35 +42,29 @@ def check_password():
     
     return False
 
-# 执行门禁检查
+# 执行门禁
 if not check_password():
     st.stop()
 
 
 # ==========================================
-# ⚙️ 2. 核心配置 (Smart Config - 防弹版)
+# ⚙️ 2. 核心配置 (Smart Config)
 # ==========================================
 
 # ⚠️ [必须修改] 本地运行时的备用钥匙
-# (当代码在你的 Mac 上运行时，会强制使用这里的值)
 LOCAL_GEMINI_KEY = "AIzaSyBKW_0nEnaZiJu33JvWhPiPOxkC5yf9zLA"  
 LOCAL_TAVILY_KEY = "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"
 LOCAL_PROXY_PORT = "1082"
 
-# 智能环境切换逻辑
+# 智能环境切换
 try:
-    # 尝试读取云端配置
     my_api_key = st.secrets["GEMINI_KEY"]
     tavily_key = st.secrets["TAVILY_KEY"]
-    print("☁️ 检测到云端环境，已自动移除代理。")
-
+    print("☁️ 云端环境：已移除代理。")
 except Exception:
-    # 捕获错误 -> 切换为本地模式
-    print(f"🖥️ 检测到本地环境，启用代理: {LOCAL_PROXY_PORT}")
+    print(f"🖥️ 本地环境：启用代理 {LOCAL_PROXY_PORT}")
     my_api_key = LOCAL_GEMINI_KEY
     tavily_key = LOCAL_TAVILY_KEY
-    
-    # 挂载代理
     os.environ["HTTP_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
     os.environ["HTTPS_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
 
@@ -87,7 +81,6 @@ DB_FILE = "second_brain.db"
 # ==========================================
 # 💾 3. 数据库技能
 # ==========================================
-
 def get_connection():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
@@ -141,7 +134,6 @@ def delete_memory(mid):
 # ==========================================
 # 🧠 4. 智能体技能
 # ==========================================
-
 def analyze_logic(text):
     if not text: return "无内容", "未分类"
     prompt = f"""
@@ -243,15 +235,18 @@ def chat_with_brain(user_query):
 
 
 # ==========================================
-# 🎨 5. 界面构建
+# 🎨 5. 界面构建 (完美适配深色/浅色模式)
 # ==========================================
 
-st.set_page_config(page_title="Cortex", layout="wide", page_icon="🧬")
 init_db()
 
+# CSS 样式注入 (已修复侧边栏文字消失问题)
 st.markdown("""
 <style>
+    /* 全局字体 */
     html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    
+    /* 标题渐变 */
     .title-gradient {
         background: -webkit-linear-gradient(45deg, #6a11cb, #2575fc);
         -webkit-background-clip: text;
@@ -260,15 +255,30 @@ st.markdown("""
         font-size: 3em;
         padding-bottom: 10px;
     }
+    
+    /* 卡片容器 (兼容深色模式) */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px;
         border: 1px solid #f0f0f0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        background-color: white;
+        background-color: white; /* 浅色模式背景 */
         padding: 15px;
     }
+    
+    /* 深色模式下的卡片覆盖 */
+    @media (prefers-color-scheme: dark) {
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: #262730; /* 深色背景 */
+            border: 1px solid #363945;
+        }
+    }
+    
+    /* 按钮圆角 */
     div.stButton > button { border-radius: 8px; font-weight: 600; }
-    section[data-testid="stSidebar"] { background-color: #f8f9fa; }
+    
+    /* ⚠️ 已删除强制侧边栏背景色的代码，现在文字会自动适配了！ */
+    
+    /* 强制画廊卡片高度一致 */
     div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
         height: 240px; 
         overflow: hidden;
@@ -276,14 +286,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# 侧边栏
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🧬 Cortex</h1>", unsafe_allow_html=True)
-    st.caption("v3.8 Secure Cloud Edition")
+    st.caption("v3.9 Day/Night Edition")
     st.markdown("---")
     st.info("📊 已存储: " + str(len(load_memories(1000))) + " 条笔记")
     st.markdown("---")
     st.caption("1. 📝 深度录入\n2. 🎨 记忆画廊\n3. 🔧 数据管理\n4. 🌍 全网侦探\n5. 💬 智能顾问")
 
+# 主界面
 st.markdown('<div class="title-gradient">Cortex Intelligence</div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管理", "🌍 侦探", "💬 顾问"])
