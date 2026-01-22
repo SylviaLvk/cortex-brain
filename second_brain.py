@@ -303,7 +303,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管�
 with tab1:
     with st.container(border=True):
         st.subheader("💡 存入新想法")
-        with st.form("input_form"), clear_on_submit=True):
+        with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns([1, 3])
             cat = c1.selectbox("分类", ["核心知识", "灵感", "复盘", "代码", "AI 顾问", "情报调研"])
             use_ai = c2.checkbox("🪄 启用 AI 重组", value=True)
