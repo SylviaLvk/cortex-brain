@@ -52,8 +52,8 @@ if not check_password():
 # ==========================================
 
 # ⚠️ [必须修改] 本地运行时的备用钥匙
-LOCAL_GEMINI_KEY = "AIzaSyBKW_0nEnaZiJu33JvWhPiPOxkC5yf9zLA"  
-LOCAL_TAVILY_KEY = "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"
+LOCAL_GEMINI_KEY = ""  
+LOCAL_TAVILY_KEY = ""
 LOCAL_PROXY_PORT = "1082"
 
 # 智能环境切换
