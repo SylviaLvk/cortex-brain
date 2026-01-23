@@ -8,42 +8,89 @@ from tavily import TavilyClient
 import requests
 
 # ==========================================
-# 0. 页面初始化 (必须在最前面)
+# 0. 页面初始化 (必须放在最第一行)
 # ==========================================
 st.set_page_config(page_title="Cortex", layout="wide", page_icon="🧬")
+
+# ==========================================
+# 🎨 UI 美化区 (变量分离法 - 绝对安全)
+# ==========================================
+# 我们把 CSS 关在这个变量里，Python 解析器就不会报错了
+APP_STYLE = """
+<style>
+    /* 全局字体 */
+    html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    
+    /* 标题渐变特效 */
+    .title-gradient {
+        background: -webkit-linear-gradient(45deg, #6a11cb, #2575fc);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: bold;
+        font-size: 3em;
+        padding-bottom: 10px;
+    }
+    
+    /* 卡片容器样式 */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 12px;
+        border: 1px solid #f0f0f0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        background-color: white; 
+        padding: 15px;
+    }
+    
+    /* 深色模式适配 */
+    @media (prefers-color-scheme: dark) {
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: #262730; 
+            border: 1px solid #363945;
+        }
+    }
+    
+    /* 按钮圆角 */
+    div.stButton > button { border-radius: 8px; font-weight: 600; }
+    
+    /* 侧边栏微调 */
+    section[data-testid="stSidebar"] {
+        background-color: #f9f9f9;
+    }
+    @media (prefers-color-scheme: dark) {
+        section[data-testid="stSidebar"] { background-color: #1e1e1e; }
+    }
+</style>
+"""
+st.markdown(APP_STYLE, unsafe_allow_html=True)
 
 # ==========================================
 # 🔐 1. 安全门禁
 # ==========================================
 def check_password():
-    """安全检查：云端需要密码，本地自动免密"""
+    """云端强制密码，本地自动放行"""
+    # 1. 检查是否在云端 (通过是否配置了 secrets)
     try:
-        # 如果云端没有设置密码，或者本地没有 secrets 文件，直接放行
         if "APP_PASSWORD" not in st.secrets:
-            return True 
-    except Exception:
-        # 本地环境直接放行
-        return True
+            return True # 没设密码就放行
+    except:
+        return True # 本地报错说明没 secrets，放行
 
-    # 如果已经解锁过
+    # 2. 检查 Session 状态
     if "password_correct" in st.session_state and st.session_state["password_correct"]:
         return True
 
-    # 显示密码框
+    # 3. 显示锁屏界面
     st.markdown("## 🔒 Cortex 安全门禁")
-    st.caption("云端访问保护中，请输入密码")
-    password_input = st.text_input("访问密码", type="password")
+    pwd = st.text_input("请输入访问密码", type="password")
     
     if st.button("解锁"):
-        if password_input == st.secrets["APP_PASSWORD"]:
+        if pwd == st.secrets["APP_PASSWORD"]:
             st.session_state["password_correct"] = True
             st.rerun()
         else:
             st.error("🚫 密码错误")
-    
-    # 没解锁前停止运行
     return False
 
+# 如果没通过检查，直接停止运行下面的代码
 if not check_password():
     st.stop()
 
@@ -51,35 +98,34 @@ if not check_password():
 # ⚙️ 2. 核心配置 (Smart Config)
 # ==========================================
 
-# ⚠️ [必须修改] 本地运行时的备用钥匙
-LOCAL_GEMINI_KEY = ""  
+# 👇👇👇 [请在这里填入你的 Key] 👇👇👇
+LOCAL_GEMINI_KEY = ""
 LOCAL_TAVILY_KEY = ""
-LOCAL_PROXY_PORT = "1082"
+LOCAL_PROXY_PORT = "1082" 
 
-# 智能环境切换
+# 自动判断环境
 try:
+    # 尝试读取云端 Secrets
     my_api_key = st.secrets["GEMINI_KEY"]
     tavily_key = st.secrets["TAVILY_KEY"]
-    print("☁️ 云端环境：已移除代理。")
-except Exception:
-    print(f"🖥️ 本地环境：启用代理 {LOCAL_PROXY_PORT}")
+except:
+    # 读不到就用本地 Key，并挂代理
     my_api_key = LOCAL_GEMINI_KEY
     tavily_key = LOCAL_TAVILY_KEY
-    # 本地挂代理
     os.environ["HTTP_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
     os.environ["HTTPS_PROXY"] = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
 
-# 配置 AI
+# 激活 AI
 try:
     genai.configure(api_key=my_api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
-    st.error(f"AI 配置错误: {e}")
+    st.error(f"AI 启动失败: {e}")
 
 DB_FILE = "second_brain.db"
 
 # ==========================================
-# 💾 3. 数据库技能 (含高级重排)
+# 💾 3. 数据库技能 (含重排 + 格式化)
 # ==========================================
 def get_connection():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -100,31 +146,31 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ID 重排 (碎片整理)
+# 🔥 核心功能：ID 重排 (解决 ID 不连续问题)
 def reorder_ids():
     conn = get_connection()
-    # 1. 取出所有数据，按旧 ID 排序
+    # 1. 捞出所有数据
     df = pd.read_sql_query("SELECT * FROM memories ORDER BY id ASC", conn)
     conn.close()
     
     if df.empty: return
 
-    # 2. 彻底删表 (重置计数器)
+    # 2. 炸掉旧表
     conn = get_connection()
     c = conn.cursor()
     c.execute("DROP TABLE IF EXISTS memories")
     conn.commit()
     conn.close()
-    init_db() # 重建空表
-
-    # 3. 重新插入 (ID 会自动变成 1, 2, 3...)
+    
+    # 3. 重建新表
+    init_db()
+    
+    # 4. 填回数据 (ID 会自动变成 1, 2, 3...)
     conn = get_connection()
     c = conn.cursor()
     for _, row in df.iterrows():
-        c.execute('''
-            INSERT INTO memories (created_at, category, content, summary, tags)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (row['created_at'], row['category'], row['content'], row['summary'], row['tags']))
+        c.execute('INSERT INTO memories (created_at, category, content, summary, tags) VALUES (?, ?, ?, ?, ?)', 
+                  (row['created_at'], row['category'], row['content'], row['summary'], row['tags']))
     conn.commit()
     conn.close()
 
@@ -137,14 +183,12 @@ def reset_db():
     conn.close()
     init_db()
 
-def save_memory(category, content, summary, tags):
+def save_memory(cat, con, summ, tgs):
     conn = get_connection()
     c = conn.cursor()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute('''
-        INSERT INTO memories (created_at, category, content, summary, tags)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (timestamp, category, content, summary, tags))
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute('INSERT INTO memories (created_at, category, content, summary, tags) VALUES (?, ?, ?, ?, ?)', 
+              (ts, cat, con, summ, tgs))
     conn.commit()
     conn.close()
 
@@ -152,9 +196,7 @@ def load_memories(limit=50):
     init_db()
     conn = get_connection()
     try:
-        query = f"SELECT * FROM memories ORDER BY id DESC LIMIT {limit}"
-        df = pd.read_sql_query(query, conn)
-        return df
+        return pd.read_sql_query(f"SELECT * FROM memories ORDER BY id DESC LIMIT {limit}", conn)
     except:
         return pd.DataFrame()
     finally:
@@ -168,14 +210,13 @@ def delete_memory(mid):
     conn.close()
 
 # ==========================================
-# 🧠 4. 智能体技能
+# 🧠 4. 智能体技能 (深阅读 + 搜索)
 # ==========================================
 def analyze_logic(text):
     if not text: return "无内容", "未分类"
     prompt = f"""
     你是一位逻辑导师。请将用户输入重组为复习卡片。
     输入：{text}
-    ----
     Markdown 输出格式：
     ### (简短标题)
     (一句话总结)
@@ -186,136 +227,63 @@ def analyze_logic(text):
     TAGS: 标签1, 标签2
     """
     try:
-        response = model.generate_content(prompt)
-        res = response.text.strip()
+        res = model.generate_content(prompt).text.strip()
         if "TAGS:" in res:
-            parts = res.split("TAGS:")
-            return parts[0].strip(), parts[1].strip()
+            p = res.split("TAGS:")
+            return p[0].strip(), p[1].strip()
         return res, "AI未打标"
-    except Exception as e:
-        return f"AI 错误: {e}", "错误"
+    except:
+        return text, "AI错误"
 
+# 深阅读功能
 def deep_read_url(url):
     try:
         jina_url = f"https://r.jina.ai/{url}"
         response = requests.get(jina_url, timeout=20)
-        if response.status_code == 200:
-            return response.text
-        else:
-            return f"读取失败: {response.status_code}"
+        return response.text if response.status_code == 200 else "读取失败"
     except Exception as e:
         return f"连接错误: {e}"
 
 def web_agent_report(query, mode="search"):
-    raw_data = ""
-    source_type = ""
     if mode == "search":
         try:
             tavily = TavilyClient(api_key=tavily_key) 
-            response = tavily.search(query=query, search_depth="advanced", max_results=5)
-            raw_data = "\n".join([f"- {r['title']}: {r['content']} (来源: {r['url']})" for r in response.get('results', [])])
-            source_type = "搜索引擎摘要"
-            if not raw_data: return None, "未找到信息"
+            res = tavily.search(query=query, search_depth="advanced", max_results=5)
+            raw = "\n".join([f"- {r['title']}: {r['content']} ({r['url']})" for r in res.get('results', [])])
+            return raw, "搜索"
         except Exception as e:
-            return None, f"搜索报错: {e}"
+            return None, str(e)
     elif mode == "url":
-        st.info(f"正在深度爬取: {query}")
-        raw_content = deep_read_url(query)
-        raw_data = raw_content[:15000] 
-        source_type = "网页深度全文"
+        # 调用 Jina 进行深阅读
+        content = deep_read_url(query)
+        return content[:10000], "深阅读" # 截取前1万字防止Token爆炸
+    return None, "未知模式"
 
-    prompt = f"""
-    你是一位研究员。用户提供了【{source_type}】。
-    内容：{raw_data}
-    ----
-    请写深度简报：
-    ### (标题)
-    (结论摘要)
-    #### 1. 关键细节
-    #### 2. 洞察
-    TAGS: 深阅读, 情报
-    """
-    try:
-        ai_res = model.generate_content(prompt)
-        res_text = ai_res.text.strip()
-        final_report = res_text
-        final_tags = "深阅读"
-        if "TAGS:" in res_text:
-            parts = res_text.split("TAGS:")
-            final_report = parts[0].strip()
-            final_tags = parts[1].strip()
-        return final_report, final_tags
-    except Exception as e:
-        return None, f"AI 生成失败: {e}"
-
-def chat_with_brain(user_query):
+def chat_with_brain(query):
     df = load_memories(limit=50)
-    memory_context = ""
+    ctx = ""
     if not df.empty:
         for _, row in df.iterrows():
-            memory_context += f"[ID:{row['id']}] [{row['category']}] 摘要: {row['summary']}\n标签: {row['tags']}\n---\n"
-    else:
-        memory_context = "(数据库暂无记忆)"
-
-    prompt = f"""
-    【角色】你的第二大脑顾问。
-    【记忆】{memory_context}
-    【提问】"{user_query}"
-    【原则】1. 必须引用 [ID:xx]。 2. 无记忆可调用通用知识但需标注。
-    """
+            ctx += f"[ID:{row['id']}] {row['summary']}\n"
+    
+    prompt = f"角色：第二大脑顾问。\n记忆库：{ctx}\n用户：{query}\n原则：优先引用记忆库内容。"
     try:
-        response = model.generate_content(prompt)
-        return response.text
+        return model.generate_content(prompt).text
     except Exception as e:
-        return f"大脑短路: {e}"
-
+        return f"思考失败: {e}"
 
 # ==========================================
-# 🎨 5. 界面构建
+# 🎨 5. 界面构建 (Tab逻辑)
 # ==========================================
-
 init_db()
-
-# CSS 样式注入
-st.markdown("""
-<style>
-    html, body, [class*="css"] { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-    .title-gradient {
-        background: -webkit-linear-gradient(45deg, #6a11cb, #2575fc);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: bold;
-        font-size: 3em;
-        padding-bottom: 10px;
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px;
-        border: 1px solid #f0f0f0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        background-color: white; 
-        padding: 15px;
-    }
-    @media (prefers-color-scheme: dark) {
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            background-color: #262730; 
-            border: 1px solid #363945;
-        }
-    }
-    div.stButton > button { border-radius: 8px; font-weight: 600; }
-    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-        height: 240px; 
-        overflow: hidden;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🧬 Cortex</h1>", unsafe_allow_html=True)
-    st.caption("v4.4 Final Golden Edition")
+    st.caption("v4.6 Reborn Edition")
     st.markdown("---")
-    st.info("📊 已存储: " + str(len(load_memories(1000))) + " 条笔记")
+    st.info(f"📊 已存储: {len(load_memories(1000))} 条笔记")
     st.markdown("---")
-    st.caption("1. 📝 深度录入\n2. 🎨 记忆画廊\n3. 🔧 数据管理\n4. 🌍 全网侦探\n5. 💬 智能顾问")
+    st.caption("1. 📝 录入\n2. 🎨 画廊\n3. 🔧 管理\n4. 🌍 侦探\n5. 💬 顾问")
 
 st.markdown('<div class="title-gradient">Cortex Intelligence</div>', unsafe_allow_html=True)
 
@@ -324,128 +292,128 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 录入", "🎨 画廊", "🔧 管�
 with tab1:
     with st.container(border=True):
         st.subheader("💡 存入新想法")
-        # ✅ 已修复：参数放在括号内
+        # ✅ 修正点：clear_on_submit 必须在括号内
         with st.form("input_form", clear_on_submit=True):
             c1, c2 = st.columns([1, 3])
             cat = c1.selectbox("分类", ["核心知识", "灵感", "复盘", "代码", "AI 顾问", "情报调研"])
-            use_ai = c2.checkbox("🪄 启用 AI 重组", value=True)
+            use_ai = c2.checkbox("🪄 AI 重组", value=True)
             txt = st.text_area("内容...", height=150)
             
             if st.form_submit_button("🚀 存入"):
                 sm, tg = txt, "手动"
                 if use_ai and txt:
-                    with st.spinner("AI 处理中..."):
+                    with st.spinner("AI 正在重组..."):
                         sm, tg = analyze_logic(txt)
                 save_memory(cat, txt, sm, tg)
                 st.success("已存入！")
                 st.rerun()
 
 with tab2:
-    df = load_memories(limit=100) 
+    df = load_memories(limit=100)
     if not df.empty:
         st.markdown(f"#### 📚 记忆库 ({len(df)})")
         cols = st.columns(3)
         for i, row in df.iterrows():
             with cols[i % 3]:
                 with st.container(border=True):
-                    cat_icon = "📝"
-                    if row['category'] == "AI 顾问": cat_icon = "💡"
-                    elif "情报" in row['category']: cat_icon = "🌍"
-                    elif row['category'] == "代码": cat_icon = "💻"
-                    st.markdown(f"##### {cat_icon} {row['category']}")
-                    short_summary = row['summary'].split('\n')[0][:35]
-                    st.markdown(f"<span style='color:grey; font-size:0.9em'>{short_summary}...</span>", unsafe_allow_html=True)
-                    with st.popover("🔍 展开"):
-                        st.subheader(f"{cat_icon} {row['category']}")
+                    st.markdown(f"##### 📝 {row['category']}")
+                    # 摘要截断显示
+                    summary_preview = row['summary'].split('\n')[0][:40]
+                    st.caption(f"{summary_preview}...")
+                    
+                    with st.popover("🔍 查看详情"):
+                        st.subheader(f"ID: {row['id']} | {row['category']}")
                         st.markdown(row['summary'])
-                        st.markdown("---")
-                        st.info("原始数据")
-                        st.markdown(row['content'])
+                        st.divider()
+                        st.text("原始数据:")
+                        st.code(row['content'])
 
 with tab3:
     with st.container(border=True):
         st.subheader("🛠️ 数据维护")
         
-        df_m = load_memories(limit=100)
+        # 删除区
+        df_m = load_memories(100)
         if not df_m.empty:
             st.dataframe(df_m[['id', 'category', 'tags']], use_container_width=True)
             c1, c2 = st.columns([3, 1])
-            d_id = c1.number_input("删除指定 ID", min_value=0)
-            if c2.button("🗑️ 删除单条"):
+            d_id = c1.number_input("输入要删除的 ID", min_value=0)
+            if c2.button("🗑️ 删除"):
                 delete_memory(d_id)
+                st.success(f"ID {d_id} 已删除")
                 st.rerun()
         
         st.markdown("---")
         st.markdown("#### ⚙️ 高级操作")
         col_clean, col_reset = st.columns(2)
         
+        # ID 重排区
         with col_clean:
-            st.info("重整不连续的 ID (如 1,3,5 -> 1,2,3)")
+            st.info("笔记 ID 乱了？点击整理 (如 1,3,5 -> 1,2,3)")
             if st.button("🔄 重整 ID 顺序"):
-                reorder_ids()
+                with st.spinner("正在整理数据库..."):
+                    reorder_ids()
                 st.balloons()
-                st.success("ID 已重排！")
+                st.success("整理完成！")
                 st.rerun()
 
+        # 格式化区
         with col_reset:
-            st.warning("危险：清空所有数据！")
+            st.warning("⚠️ 危险：清空所有数据！")
             if st.button("🔥 格式化大脑"):
                 reset_db()
-                st.error("已清空！")
+                st.error("已清空所有数据")
                 st.rerun()
 
 with tab4:
     with st.container(border=True):
         st.subheader("🌍 全网侦探")
-        search_mode = st.radio("模式", ["🔍 搜关键词", "📖 读 URL"], horizontal=True)
+        mode = st.radio("模式", ["🔍 搜关键词", "📖 读 URL (深阅读)"], horizontal=True)
+        
         c_q, c_b = st.columns([4, 1])
-        if "关键词" in search_mode:
-            q_in = c_q.text_input("话题", placeholder="例如：DeepSeek")
-            mode = "search"
+        if "关键词" in mode:
+            q_in = c_q.text_input("输入话题", placeholder="例如：DeepSeek 深度解析")
+            s_type = "search"
         else:
-            q_in = c_q.text_input("链接", placeholder="https://...")
-            mode = "url"
-        
+            q_in = c_q.text_input("输入文章链接", placeholder="https://...")
+            s_type = "url"
+            
         if c_b.button("🚀 执行"):
-            with st.spinner("执行中..."):
-                rep, tgs = web_agent_report(q_in, mode=mode)
-                if rep:
-                    st.session_state.res = rep
-                    st.session_state.tags = tgs
+            with st.spinner("侦探行动中..."):
+                res, tag = web_agent_report(q_in, s_type)
+                if res:
+                    st.session_state.res = res
+                    st.session_state.tags = tag
                 else:
-                    st.error(tgs)
-        
+                    st.error("未获取到内容")
+
         if "res" in st.session_state and st.session_state.res:
             st.markdown("---")
-            st.markdown(st.session_state.res)
-            if st.button("💾 归档"):
+            with st.expander("📄 阅读报告", expanded=True):
+                st.markdown(st.session_state.res)
+            
+            if st.button("💾 归档这份情报"):
                 save_memory("情报调研", f"源: {q_in}", st.session_state.res, st.session_state.tags)
                 st.success("已归档！")
-                st.session_state.res = None
-                st.rerun()
 
 with tab5:
     st.subheader("💬 Cortex 顾问")
+    # 初始化对话
     if "msgs" not in st.session_state:
-        st.session_state.msgs = [{"role": "assistant", "content": "你好，我是 Cortex。"}]
+        st.session_state.msgs = [{"role": "assistant", "content": "我是你的第二大脑，有什么可以帮你？"}]
     
+    # 渲染历史
     for msg in st.session_state.msgs:
         avatar = "🧬" if msg["role"] == "assistant" else "👤"
         st.chat_message(msg["role"], avatar=avatar).write(msg["content"])
     
-    if u_in := st.chat_input("提问..."):
+    # 输入与回复
+    if u_in := st.chat_input("问问大脑..."):
         st.session_state.msgs.append({"role": "user", "content": u_in})
         st.chat_message("user", avatar="👤").write(u_in)
-        st.session_state.last_u = u_in
+        
         with st.chat_message("assistant", avatar="🧬"):
-            with st.spinner("思考中..."):
+            with st.spinner("检索记忆中..."):
                 resp = chat_with_brain(u_in)
                 st.write(resp)
                 st.session_state.msgs.append({"role": "assistant", "content": resp})
-                st.session_state.last_a = resp
-                st.rerun()
-    
-    if st.session_state.msgs and st.session_state.msgs[-1]["role"] == "assistant" and len(st.session_state.msgs) > 1:
-        if st.button("📥 归档建议"):
-            save_memory("AI 顾问", f"问: {st.session_state.get('last_u','')}", st.session_state.msgs[-1]["content"], "对话")
-            st.success("已归档")
